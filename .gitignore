@@ -1,0 +1,18 @@
+# OS
+Thumbs.db
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Regeneratable — these are decompressed from the manifest on demand.
+# Keep only the WheelApp source and helper scripts.
+_extracted/manifest.json
+_extracted/_template.html
+_extracted/*.bin
+_extracted/68a85ffc-*.js
+_extracted/165d2924-*.js
+_extracted/dc640b0b-*.js
+_extracted/9de08bb3-*.js
+_extracted/c9ea95a5-*.bin
