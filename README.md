@@ -1,6 +1,6 @@
 # Wheel of Fortune
 
-A casino-style single-file Wheel of Fortune web app deployed on Netlify: https://superb-cocada-a3ce7c.netlify.app/
+A casino-style single-file Wheel of Fortune web app deployed on Netlify: https://wheeloffortuneiphone.netlify.app/
 
 ## Files
 
