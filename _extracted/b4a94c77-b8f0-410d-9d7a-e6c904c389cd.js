@@ -8,18 +8,18 @@ const C_GOLD = '#F5C24A';
 const C_GOLD_DEEP = '#C88A14';
 
 const PRIZES = [
-  { label: '100',    dark: true  },
-  { label: '500',    dark: false },
-  { label: '50',     dark: true  },
-  { label: '1000',   dark: false },
-  { label: '200',    dark: true  },
-  { label: '75',     dark: false },
-  { label: '300',    dark: true  },
-  { label: '25',     dark: false },
-  { label: '5000',   dark: true  },
-  { label: '150',    dark: false },
-  { label: '400',    dark: true  },
-  { label: '10',     dark: false },
+  { label: '7',  dark: true  },
+  { label: '2',  dark: false },
+  { label: '11', dark: true  },
+  { label: '4',  dark: false },
+  { label: '9',  dark: true  },
+  { label: '1',  dark: false },
+  { label: '12', dark: true  },
+  { label: '5',  dark: false },
+  { label: '8',  dark: true  },
+  { label: '3',  dark: false },
+  { label: '10', dark: true  },
+  { label: '6',  dark: false },
 ];
 
 const N = PRIZES.length;           // 12
@@ -612,6 +612,9 @@ function WheelApp() {
   }, [balance]);
   const spinStartRef = React.useRef(null);
   const spinDataRef = React.useRef(null);
+  // Synchronous lock — prevents a rapid double-tap from queuing two spins
+  // before the `spinning` state flush disables the button.
+  const spinLockRef = React.useRef(false);
 
   React.useEffect(() => { audio.setMuted(muted); }, [muted]);
 
@@ -654,7 +657,8 @@ function WheelApp() {
   }, [spinning]);
 
   function spin() {
-    if (spinning || spinsLeft <= 0) return;
+    if (spinLockRef.current || spinsLeft <= 0) return;
+    spinLockRef.current = true;
     setResult(null);
     setSpinsLeft(s => s - 1);
     const winning = Math.floor(Math.random() * N);
@@ -677,8 +681,9 @@ function WheelApp() {
       setSpinning(false);
       const prize = PRIZES[winning];
       setResult(prize);
-      setBalance(b => b + parseInt(prize.label, 10));
+      setBalance(b => b + parseInt(prize.label, 10) * 100);
       audio.win();
+      spinLockRef.current = false;
     }, 5300);
   }
 
@@ -705,7 +710,7 @@ function WheelApp() {
 
       {/* decorative bulbs along top */}
       <div style={{
-        position: 'absolute', top: 58, left: 0, right: 0,
+        position: 'absolute', top: 28, left: 0, right: 0,
         display: 'flex', justifyContent: 'space-between',
         padding: '0 28px', zIndex: 4,
       }}>
@@ -722,7 +727,7 @@ function WheelApp() {
       {/* header */}
       <div style={{
         position: 'relative', zIndex: 3,
-        paddingTop: 78, paddingBottom: 6,
+        paddingTop: 48, paddingBottom: 6,
         textAlign: 'center',
       }}>
         <div style={{
@@ -748,12 +753,13 @@ function WheelApp() {
         onClick={() => { audio.prime(); setMuted(m => !m); }}
         aria-label={muted ? 'Unmute' : 'Mute'}
         style={{
-          position: 'absolute', top: 62, left: 16, zIndex: 20,
+          position: 'absolute', top: 38, left: 16, zIndex: 20,
           width: 36, height: 36, borderRadius: '50%',
           background: 'rgba(0,0,0,0.45)',
           border: '1px solid rgba(255,212,71,0.45)',
           color: '#FFD447', fontSize: 16, lineHeight: 1,
           cursor: 'pointer', padding: 0,
+          WebkitTapHighlightColor: 'transparent',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
       >
@@ -825,6 +831,7 @@ function WheelApp() {
             width: 110, height: 110,
             border: 'none', background: 'transparent',
             padding: 0, cursor: canSpin ? 'pointer' : 'not-allowed',
+            WebkitTapHighlightColor: 'transparent',
             zIndex: 10,
             borderRadius: '50%',
             animation: spinning
@@ -855,7 +862,7 @@ function WheelApp() {
 
       {/* result / hint */}
       <div style={{
-        height: 56, margin: '12px 22px 0',
+        height: 76, margin: '40px 22px 0',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         textAlign: 'center',
         position: 'relative', zIndex: 3,
@@ -870,9 +877,12 @@ function WheelApp() {
             boxShadow: '0 0 24px rgba(255,212,71,0.55), inset 0 1px 0 rgba(255,255,255,0.6)',
             animation: 'winPop 0.5s ease-out',
           }}>
-            <div style={{ fontSize: 10, letterSpacing: 3, opacity: 0.7 }}>✦ YOU WON ✦</div>
-            <div style={{ fontSize: 26, letterSpacing: 1, lineHeight: 1.1 }}>
-              {result.label} <span style={{ fontSize: 14 }}>COINS</span>
+            <div style={{ fontSize: 10, letterSpacing: 3, opacity: 0.7 }}>✦ LUCKY ✦</div>
+            <div style={{ fontSize: 34, letterSpacing: 1, lineHeight: 1 }}>
+              {result.label}
+            </div>
+            <div style={{ fontSize: 11, letterSpacing: 2, opacity: 0.75, marginTop: 2 }}>
+              +{parseInt(result.label, 10) * 100} COINS
             </div>
           </div>
         ) : spinning ? (

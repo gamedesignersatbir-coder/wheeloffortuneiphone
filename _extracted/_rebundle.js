@@ -3,10 +3,11 @@
 // add #root CSS + haloPulse keyframe).
 const fs = require('fs');
 const zlib = require('zlib');
+const path = require('path');
 
-const HTML_PATH = 'D:/Work/ClaudeCode/wheeloffortune/Wheel of Fortune - web.html';
+const HTML_PATH = path.resolve(__dirname, '..', 'Wheel of Fortune - web (1-12).html');
 const WHEEL_UUID = 'b4a94c77-b8f0-410d-9d7a-e6c904c389cd';
-const WHEEL_SRC_PATH = `D:/Work/ClaudeCode/wheeloffortune/_extracted/${WHEEL_UUID}.js`;
+const WHEEL_SRC_PATH = path.resolve(__dirname, `${WHEEL_UUID}.js`);
 
 const html = fs.readFileSync(HTML_PATH, 'utf8');
 
