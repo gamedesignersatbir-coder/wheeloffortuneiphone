@@ -382,16 +382,20 @@ const audio = (() => {
     osc.connect(gain).connect(c.destination);
     osc.start(t); osc.stop(t + 0.06);
   };
+  // Noise buffer for whoosh is expensive to create (~172KB synth on main
+  // thread). Generate once, reuse for every spin.
+  let whooshBuf = null;
   const whoosh = () => {
     if (muted) return;
     const c = ensure(); if (!c) return;
     const t = c.currentTime;
     const dur = 0.9;
-    // pink-ish noise buffer
-    const buf = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 0.6;
-    const src = c.createBufferSource(); src.buffer = buf;
+    if (!whooshBuf || whooshBuf.sampleRate !== c.sampleRate) {
+      whooshBuf = c.createBuffer(1, Math.round(c.sampleRate * dur), c.sampleRate);
+      const data = whooshBuf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 0.6;
+    }
+    const src = c.createBufferSource(); src.buffer = whooshBuf;
     const filt = c.createBiquadFilter(); filt.type = 'bandpass';
     filt.frequency.setValueAtTime(300, t);
     filt.frequency.exponentialRampToValueAtTime(2400, t + dur * 0.7);
@@ -555,8 +559,9 @@ function fireConfetti() {
     }
   };
   // Bottom-left cannon shoots up-right (angle ≈ -45°), bottom-right up-left (≈ -135°).
-  addBurst(16, H - 12, -Math.PI / 4,       85);
-  addBurst(W - 16, H - 12, -3 * Math.PI / 4, 85);
+  // 55/cannon (down from 85) to keep iPhone main-thread work low on post-spin frame.
+  addBurst(16, H - 12, -Math.PI / 4,       55);
+  addBurst(W - 16, H - 12, -3 * Math.PI / 4, 55);
   const start = performance.now();
   const DURATION = 2400;
   function frame(now) {
@@ -587,29 +592,9 @@ function WheelApp() {
   const [spinning, setSpinning] = React.useState(false);
   const [result, setResult] = React.useState(null);
   const [winkTick, setWinkTick] = React.useState(false);
-  const [balance, setBalance] = React.useState(2500);
-  const [displayBalance, setDisplayBalance] = React.useState(2500);
-  const [spinsLeft, setSpinsLeft] = React.useState(10);
   const [pointerTick, setPointerTick] = React.useState(false);
   const [muted, setMuted] = React.useState(false);
 
-  // Animated balance counter — tweens displayBalance toward balance on change
-  React.useEffect(() => {
-    if (displayBalance === balance) return;
-    const start = displayBalance;
-    const end = balance;
-    const duration = 700;
-    const t0 = performance.now();
-    let raf;
-    const step = (now) => {
-      const t = Math.min(1, (now - t0) / duration);
-      const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
-      setDisplayBalance(Math.round(start + (end - start) * eased));
-      if (t < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [balance]);
   const spinStartRef = React.useRef(null);
   const spinDataRef = React.useRef(null);
   // Synchronous lock — prevents a rapid double-tap from queuing two spins
@@ -657,10 +642,9 @@ function WheelApp() {
   }, [spinning]);
 
   function spin() {
-    if (spinLockRef.current || spinsLeft <= 0) return;
+    if (spinLockRef.current) return;
     spinLockRef.current = true;
     setResult(null);
-    setSpinsLeft(s => s - 1);
     const winning = Math.floor(Math.random() * N);
     // We want (rotation mod 360) such that section `winning` is at top.
     // Section i is centered at angle (i*SEG) clockwise from top (since we rotate group).
@@ -681,13 +665,12 @@ function WheelApp() {
       setSpinning(false);
       const prize = PRIZES[winning];
       setResult(prize);
-      setBalance(b => b + parseInt(prize.label, 10) * 100);
       audio.win();
       spinLockRef.current = false;
     }, 5300);
   }
 
-  const canSpin = !spinning && spinsLeft > 0;
+  const canSpin = !spinning;
 
   return (
     <div style={{
@@ -724,36 +707,12 @@ function WheelApp() {
         ))}
       </div>
 
-      {/* header */}
-      <div style={{
-        position: 'relative', zIndex: 3,
-        paddingTop: 48, paddingBottom: 6,
-        textAlign: 'center',
-      }}>
-        <div style={{
-          fontFamily: "'Playfair Display', Georgia, serif",
-          fontSize: 11, letterSpacing: 4, textTransform: 'uppercase',
-          color: '#FFD447', opacity: 0.85, marginBottom: 4,
-        }}>
-          ✦ Golden Hour ✦
-        </div>
-        <div style={{
-          fontFamily: "'Playfair Display', Georgia, serif",
-          fontSize: 28, fontWeight: 900, letterSpacing: 2,
-          color: '#FFF3C4',
-          textShadow: '0 0 12px rgba(255, 212, 71, 0.5), 0 2px 0 #5A0000',
-          lineHeight: 1,
-        }}>
-          WHEEL <span style={{ color: '#FFD447', fontStyle: 'italic', fontWeight: 400 }}>of</span> FORTUNE
-        </div>
-      </div>
-
       {/* mute toggle — top-left */}
       <button
         onClick={() => { audio.prime(); setMuted(m => !m); }}
         aria-label={muted ? 'Unmute' : 'Mute'}
         style={{
-          position: 'absolute', top: 38, left: 16, zIndex: 20,
+          position: 'absolute', top: 40, left: 16, zIndex: 20,
           width: 36, height: 36, borderRadius: '50%',
           background: 'rgba(0,0,0,0.45)',
           border: '1px solid rgba(255,212,71,0.45)',
@@ -770,41 +729,103 @@ function WheelApp() {
         )}
       </button>
 
-      {/* stats row */}
+      {/* reveal banner — top zone. Before first spin: empty (space reserved so
+          the wheel doesn't jump when the popup appears). While spinning: pulsing
+          label. After a spin: the big LUCKY N popup — this is the hero. */}
       <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        padding: '14px 22px 6px', position: 'relative', zIndex: 3,
-        fontFamily: "'Playfair Display', Georgia, serif",
+        height: 160, margin: '48px 18px 0',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        textAlign: 'center',
+        position: 'relative', zIndex: 3,
       }}>
-        <div style={{
-          background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,212,71,0.35)',
-          borderRadius: 999, padding: '6px 14px',
-          display: 'flex', alignItems: 'center', gap: 8,
-        }}>
-          <span style={{ color: '#FFD447', fontSize: 14 }}>◆</span>
-          <span style={{ fontSize: 11, letterSpacing: 2, opacity: 0.7 }}>BALANCE</span>
-          <span style={{ fontSize: 15, fontWeight: 900, color: '#FFD447' }}>{displayBalance.toLocaleString()}</span>
-        </div>
-        <div style={{
-          background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,212,71,0.35)',
-          borderRadius: 999, padding: '6px 14px',
-          display: 'flex', alignItems: 'center', gap: 8,
-        }}>
-          <span style={{ fontSize: 11, letterSpacing: 2, opacity: 0.7 }}>SPINS</span>
-          <span style={{ fontSize: 15, fontWeight: 900, color: '#FFD447' }}>{spinsLeft}/10</span>
-        </div>
+        {(result && !spinning) ? (
+          <div style={{
+            padding: '16px 20px',
+            width: 240, boxSizing: 'border-box',
+            textAlign: 'center',
+            background: 'linear-gradient(180deg, #FFD447, #E89A1F)',
+            border: '2px solid #FFF3C4',
+            borderRadius: 18,
+            color: '#3A0A0A', fontWeight: 900,
+            boxShadow: '0 0 36px rgba(255,212,71,0.6), inset 0 1px 0 rgba(255,255,255,0.6)',
+            animation: 'winPop 0.5s ease-out',
+            lineHeight: 1,
+          }}>
+            <div style={{ fontSize: 12, letterSpacing: 4, opacity: 0.75, marginBottom: 6 }}>✦ LUCKY ✦</div>
+            <div style={{ fontSize: 112, letterSpacing: 1, lineHeight: 1 }}>
+              {result.label}
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            fontFamily: "'Playfair Display', Georgia, serif",
+            textAlign: 'center',
+          }}>
+            {/* tiny gold kicker — same role as "Golden Hour" in the original title */}
+            <div style={{
+              fontSize: 11, letterSpacing: 14,
+              color: '#FFD447', opacity: 0.55,
+              marginBottom: 10,
+              textIndent: 14,
+            }}>
+              ✦ ✦ ✦
+            </div>
+            {/* anchor — same role as "WHEEL of FORTUNE" */}
+            <div style={{
+              fontSize: 26, fontWeight: 900, letterSpacing: 2,
+              color: '#FFF3C4', lineHeight: 1, whiteSpace: 'nowrap',
+            }}>
+              LEADERSHIP PRINCIPLES
+            </div>
+            {/* italic flourish — same role as the lowercase italic "of" inside the original.
+                Stars removed to keep ornament balance with the three-star kicker above. */}
+            <div style={{
+              marginTop: 10,
+              fontSize: 22, fontStyle: 'italic', fontWeight: 500,
+              color: '#FFF3C4', letterSpacing: 1,
+              lineHeight: 1, whiteSpace: 'nowrap',
+            }}>
+              Spinner
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* WHEEL + POINTER + SUN — stack */}
+      {/* spinning indicator — small "✦ Spinning ✦" pulsing label that sits in
+          the 16-px gap above the wheel only while spinning. Title above stays
+          visible; LUCKY popup after spin still occupies the title zone alone.
+          Empty (height-only) when idle so the wheel doesn't shift. */}
+      <div style={{
+        height: 16, margin: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        position: 'relative', zIndex: 3,
+      }}>
+        {spinning && (
+          <div style={{
+            fontFamily: "'Playfair Display', Georgia, serif",
+            fontSize: 12, letterSpacing: 5,
+            color: '#FFD447', textTransform: 'uppercase',
+            animation: 'pulse 0.7s infinite alternate',
+            whiteSpace: 'nowrap',
+          }}>
+            ✦ Spinning ✦
+          </div>
+        )}
+      </div>
+
+      {/* WHEEL + POINTER + SUN — stack.
+          Height responsive: caps at 420 on tall viewports, shrinks on short
+          iPhone viewports (Safari URL bar visible) so the press-hint below the
+          wheel stays clear of the footer bulbs. */}
       <div style={{
         position: 'relative',
-        width: 340, height: 380,
-        margin: '4px auto 0',
+        width: 380, height: 'min(420px, calc(100svh - 285px))',
+        margin: '0 auto',
         zIndex: 2,
       }}>
         {/* pointer at top — tip overlaps wheel rim so it looks like it's catching the pegs */}
         <div style={{
-          position: 'absolute', top: 18, left: '50%',
+          position: 'absolute', top: 14, left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 15,
         }}>
@@ -813,7 +834,7 @@ function WheelApp() {
 
         {/* wheel */}
         <div style={{
-          position: 'absolute', top: 28, left: 0, right: 0, bottom: 12,
+          position: 'absolute', top: 8, left: 0, right: 0, bottom: 4,
           filter: 'drop-shadow(0 14px 28px rgba(0,0,0,0.55))',
         }}>
           <Wheel rotation={rotation} spinning={spinning}/>
@@ -825,10 +846,13 @@ function WheelApp() {
           disabled={!canSpin}
           style={{
             position: 'absolute',
-            /* wheel center tuned by eye for the supplied logo PNG (asset padding isn't perfectly symmetric) */
-            top: 194, left: 'calc(50% - 1px)',
+            /* wheel center tuned by eye for the supplied logo PNG (asset padding isn't perfectly symmetric).
+               Responsive formula: 50% gets button to the geometric center of the stack; -3px nudges it up
+               to correct for (a) wheel-div's asymmetric top:8/bottom:4 padding and (b) the logo's own ~5px
+               downward visual offset relative to its button container. */
+            top: 'calc(50% - 3px)', left: 'calc(50% - 1px)',
             transform: 'translate(-50%, -50%)',
-            width: 110, height: 110,
+            width: 122, height: 122,
             border: 'none', background: 'transparent',
             padding: 0, cursor: canSpin ? 'pointer' : 'not-allowed',
             WebkitTapHighlightColor: 'transparent',
@@ -850,64 +874,20 @@ function WheelApp() {
         {/* press-hint label */}
         {!spinning && (
           <div style={{
-            position: 'absolute', bottom: -2, left: '50%', transform: 'translateX(-50%)',
+            position: 'absolute', bottom: -10, left: '50%', transform: 'translateX(-50%)',
             fontFamily: "'Playfair Display', Georgia, serif",
-            fontSize: 10, letterSpacing: 3, color: '#FFD447',
-            opacity: 0.8, textTransform: 'uppercase', pointerEvents: 'none',
+            fontSize: 18, letterSpacing: 6, color: '#FFD447',
+            opacity: 0.85, textTransform: 'uppercase', pointerEvents: 'none',
+            whiteSpace: 'nowrap',
           }}>
-            {spinsLeft > 0 ? '✦ Press the Sun ✦' : '✦ No spins left ✦'}
-          </div>
-        )}
-      </div>
-
-      {/* result / hint */}
-      <div style={{
-        height: 76, margin: '40px 22px 0',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        textAlign: 'center',
-        position: 'relative', zIndex: 3,
-      }}>
-        {result ? (
-          <div style={{
-            padding: '10px 18px',
-            background: 'linear-gradient(180deg, #FFD447, #E89A1F)',
-            border: '2px solid #FFF3C4',
-            borderRadius: 14,
-            color: '#3A0A0A', fontWeight: 900,
-            boxShadow: '0 0 24px rgba(255,212,71,0.55), inset 0 1px 0 rgba(255,255,255,0.6)',
-            animation: 'winPop 0.5s ease-out',
-          }}>
-            <div style={{ fontSize: 10, letterSpacing: 3, opacity: 0.7 }}>✦ LUCKY ✦</div>
-            <div style={{ fontSize: 34, letterSpacing: 1, lineHeight: 1 }}>
-              {result.label}
-            </div>
-            <div style={{ fontSize: 11, letterSpacing: 2, opacity: 0.75, marginTop: 2 }}>
-              +{parseInt(result.label, 10) * 100} COINS
-            </div>
-          </div>
-        ) : spinning ? (
-          <div style={{
-            fontFamily: "'Playfair Display', Georgia, serif",
-            fontSize: 13, letterSpacing: 4, color: '#FFD447',
-            textTransform: 'uppercase',
-            animation: 'pulse 0.7s infinite alternate',
-          }}>
-            ✦ Spinning ✦
-          </div>
-        ) : (
-          <div style={{
-            fontFamily: "'Playfair Display', Georgia, serif",
-            fontSize: 11, letterSpacing: 3, color: 'rgba(255,243,196,0.55)',
-            textTransform: 'uppercase', fontStyle: 'italic',
-          }}>
-            Your fortune awaits
+            ✦ Press the Sun ✦
           </div>
         )}
       </div>
 
       {/* footer bulbs */}
       <div style={{
-        position: 'absolute', bottom: 50, left: 0, right: 0,
+        position: 'absolute', bottom: 38, left: 0, right: 0,
         display: 'flex', justifyContent: 'space-between',
         padding: '0 28px', zIndex: 4,
       }}>

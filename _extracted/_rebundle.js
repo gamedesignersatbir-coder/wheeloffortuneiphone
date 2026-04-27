@@ -5,7 +5,7 @@ const fs = require('fs');
 const zlib = require('zlib');
 const path = require('path');
 
-const HTML_PATH = path.resolve(__dirname, '..', 'Wheel of Fortune - web (1-12).html');
+const HTML_PATH = path.resolve(__dirname, '..', 'Wheel of Fortune - web (picker-titled).html');
 const WHEEL_UUID = 'b4a94c77-b8f0-410d-9d7a-e6c904c389cd';
 const WHEEL_SRC_PATH = path.resolve(__dirname, `${WHEEL_UUID}.js`);
 
@@ -78,6 +78,24 @@ const newManifestJsonEsc = escapeScriptClose(newManifestJson); // safe no-op usu
 let out = html;
 out = out.replace(mfMatch[0], `<script type="__bundler/manifest">${newManifestJsonEsc}</script>`);
 out = out.replace(tplMatch[0], `<script type="__bundler/template">${newTemplateJson}</script>`);
+
+// ── 4. Inject PWA head tags (apple-touch-icon, app title, manifest, theme) ─
+// Deploy-time contract: icon.png and manifest.json must sit next to this HTML.
+// Idempotent — only injects if the marker tag isn't already present.
+if (!out.includes('apple-mobile-web-app-title')) {
+  const pwaHeadTags = `
+  <meta name="apple-mobile-web-app-title" content="Merkur Fortune">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#2a0408">
+  <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="icon.png">
+  <link rel="manifest" href="manifest.json">`;
+  const anchor = '<meta name="apple-mobile-web-app-capable" content="yes">';
+  const before4 = out.length;
+  out = out.replace(anchor, anchor + pwaHeadTags);
+  if (out.length === before4) throw new Error('PWA injection anchor (apple-mobile-web-app-capable meta) not found');
+}
 
 fs.writeFileSync(HTML_PATH, out);
 
