@@ -751,7 +751,7 @@ function WheelApp() {
             animation: 'winPop 0.5s ease-out',
             lineHeight: 1,
           }}>
-            <div style={{ fontSize: 12, letterSpacing: 4, opacity: 0.75, marginBottom: 6 }}>✦ LUCKY ✦</div>
+            <div style={{ fontSize: 18, letterSpacing: 4, opacity: 0.85, marginBottom: 8 }}>✦ PRINCIPLE ✦</div>
             <div style={{ fontSize: 112, letterSpacing: 1, lineHeight: 1 }}>
               {result.label}
             </div>
